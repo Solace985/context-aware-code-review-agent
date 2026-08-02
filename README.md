@@ -431,6 +431,7 @@ needed, and CI runs without one to prove it.
 
 The design of this project is inspired by Qodo code review agent and the pre-PR review habit, task and repository context, the context engine,
 selective retrieval beating full context, the specialised-agent ensemble, and
-severity triage all come from there. The implementation, the security model
-and the evaluation harness are mine.
+severity triage all come from there. 
+The diagrams used for this README belong to Deeplearning.ai's 'AI Code Review' course which was also an important part of acquiring the foundational knowledge used to build this project 
+The implementation, the security model and the evaluation harness are mine.
 
