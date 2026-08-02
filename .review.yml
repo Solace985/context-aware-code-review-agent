@@ -1,0 +1,39 @@
+# code-review-agent configuration.
+# Behaviour only — credentials come from the ANTHROPIC_API_KEY environment
+# variable and are rejected if they appear here.
+version: 1
+
+model: claude-opus-5
+max_tokens: 16000
+# effort: high        # low|medium|high|xhigh|max (Claude Opus 5 / Sonnet 5)
+
+# Specialised reviewers that run in parallel and are then merged.
+# `requirements` only runs when you pass a task/ticket with --task.
+agents:
+  - security
+  - correctness
+  - patterns
+  - requirements
+
+context:
+  mode: selective     # selective (recommended) | full | none
+  max_chunks: 12      # top-K repository chunks retrieved per review
+  max_chunk_chars: 1800
+  max_rules: 6
+
+review:
+  min_confidence: 0.5
+  max_findings: 15
+  require_changed_lines: true   # drop findings that do not touch the diff
+  changed_line_slack: 3
+  fail_on: high                 # exit 1 when a finding is this severe or worse
+  history: true                 # append finding summaries to .review/history.jsonl
+
+limits:
+  max_diff_bytes: 200000
+  max_changed_files: 60
+
+rules_dir: .review/rules
+
+exclude:
+  - "**/*.generated.*"

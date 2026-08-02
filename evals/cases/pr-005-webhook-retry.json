@@ -1,0 +1,69 @@
+{
+  "id": "pr-005",
+  "title": "Add a retrying webhook sender for self-hosted endpoints",
+  "task": [
+    "DX-105: Retry webhook delivery",
+    "",
+    "## Acceptance criteria",
+    "1. Failed deliveries retry up to 3 times.",
+    "2. Delivery must remain signed and must keep the existing timeout.",
+    "3. Self-hosted customers use their own certificates; delivery must still",
+    "   validate them."
+  ],
+  "diff": [
+    "diff --git a/app/notifications.py b/app/notifications.py",
+    "index 4f5a6b7..8c9d0e1 100644",
+    "--- a/app/notifications.py",
+    "+++ b/app/notifications.py",
+    "@@ -38,3 +38,22 @@ def post_json(url: str, payload: dict[str, Any]) -> int:",
+    " ",
+    " def notify_report_submitted(url: str, report_id: int) -> int:",
+    "     return post_json(url, {\"event\": \"report.submitted\", \"report_id\": report_id})",
+    "+",
+    "+",
+    "+def post_with_retry(url: str, payload: dict[str, Any], attempts: int = 3) -> int:",
+    "+    \"\"\"Deliver a webhook, retrying on failure.\"\"\"",
+    "+    secret = os.environ[\"WEBHOOK_SIGNING_SECRET\"]",
+    "+    log.debug(\"delivering to %s with secret %s\", url, secret)",
+    "+",
+    "+    body = json.dumps(payload).encode()",
+    "+    last_status = 0",
+    "+    for _ in range(attempts):",
+    "+        response = requests.post(",
+    "+            url,",
+    "+            data=body,",
+    "+            headers={\"content-type\": \"application/json\"},",
+    "+            verify=False,",
+    "+        )",
+    "+        last_status = response.status_code",
+    "+        if last_status < 500:",
+    "+            return last_status",
+    "+    return last_status"
+  ],
+  "expected": [
+    {
+      "file": "app/notifications.py",
+      "line": 54,
+      "category": "security",
+      "tags": ["verify false", "tls", "certificate", "ssl", "man in the middle", "mitm", "verification is disabled"]
+    },
+    {
+      "file": "app/notifications.py",
+      "line": 45,
+      "category": "security",
+      "tags": ["secret", "log", "signing secret", "plaintext", "exposes", "leak"]
+    },
+    {
+      "file": "app/notifications.py",
+      "line": 50,
+      "category": "reliability",
+      "tags": ["timeout", "hang", "block", "indefinit", "no timeout"]
+    },
+    {
+      "file": "app/notifications.py",
+      "line": 52,
+      "category": "correctness",
+      "tags": ["signature", "x signature", "unsigned", "signing header", "not signed", "reject"]
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+# Course transcripts / private reference material — never published
+reference-docs/
+
+# Review agent local output & caches (may contain source excerpts)
+.review-out/
+.review/history.jsonl
+.review/cache/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+credentials
+credentials.*
+.netrc
+.npmrc
+.pypirc
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+CLAUDE.md

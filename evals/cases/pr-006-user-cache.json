@@ -1,0 +1,70 @@
+{
+  "id": "pr-006",
+  "title": "Cache the user list to cut database load",
+  "task": [
+    "DX-106: Reduce repeated user-list queries",
+    "",
+    "## Acceptance criteria",
+    "1. Repeated calls within a short window should not re-query the database.",
+    "2. The cache must never serve one caller's results to another caller.",
+    "3. Memory use must stay bounded."
+  ],
+  "diff": [
+    "diff --git a/app/users.py b/app/users.py",
+    "index 3a1f2b4..b4c5d6e 100644",
+    "--- a/app/users.py",
+    "+++ b/app/users.py",
+    "@@ -14,15 +14,26 @@ log = logging.getLogger(__name__)",
+    " ",
+    " EDITABLE_PROFILE_FIELDS = {\"display_name\", \"timezone\", \"locale\"}",
+    " ",
+    "+_USER_LIST_CACHE: dict[int, list[dict[str, Any]]] = {}",
+    "+",
+    " ",
+    " def get_user(request: dict[str, Any], user_id: int) -> dict[str, Any]:",
+    "     caller = require_user(request)",
+    "     row = query_one(\"SELECT id, email, role, display_name FROM users WHERE id = ?\", (user_id,))",
+    "     if row is None:",
+    "         return {\"status\": 404, \"body\": {\"error\": \"not found\"}}",
+    "     assert_owner(caller, {\"owner_id\": row[\"id\"]})",
+    "     return {\"status\": 200, \"body\": row}",
+    " ",
+    " ",
+    " def list_users(request: dict[str, Any], page_size: int | None = None) -> dict[str, Any]:",
+    "     caller = require_user(request)",
+    "     if caller.get(\"role\") != \"admin\":",
+    "         raise Forbidden(\"admin only\")",
+    "     limit = clamp_page_size(page_size)",
+    "-    rows = query(\"SELECT id, email, display_name FROM users ORDER BY id LIMIT ?\", (limit,))",
+    "+",
+    "+    if limit in _USER_LIST_CACHE:",
+    "+        return {\"status\": 200, \"body\": {\"users\": _USER_LIST_CACHE[limit], \"limit\": limit}}",
+    "+",
+    "+    rows = query(\"SELECT id, email, display_name FROM users ORDER BY id LIMIT ?\", (limit,))",
+    "+    _USER_LIST_CACHE[limit] = rows",
+    "     return {\"status\": 200, \"body\": {\"users\": rows, \"limit\": limit}}",
+    " ",
+    " ",
+    " def update_display_name(request: dict[str, Any], user_id: int, display_name: str) -> dict[str, Any]:"
+  ],
+  "expected": [
+    {
+      "file": "app/users.py",
+      "line": 33,
+      "category": "correctness",
+      "tags": ["stale", "invalidat", "ttl", "never expires", "no expiry", "out of date", "update display name"]
+    },
+    {
+      "file": "app/users.py",
+      "line": 17,
+      "category": "reliability",
+      "tags": ["unbounded", "grow", "memory", "eviction", "no limit on the cache", "leak"]
+    },
+    {
+      "file": "app/users.py",
+      "line": 34,
+      "category": "reliability",
+      "tags": ["race", "thread", "concurren", "lock", "mutable module level", "not thread safe"]
+    }
+  ]
+}

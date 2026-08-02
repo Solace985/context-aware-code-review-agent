@@ -1,0 +1,65 @@
+{
+  "id": "pr-004",
+  "title": "Add avatar upload",
+  "task": [
+    "DX-104: Let users upload a profile picture",
+    "",
+    "## Acceptance criteria",
+    "1. Only the owning user may set their own avatar.",
+    "2. Accept PNG and JPEG only, at most 2 MB.",
+    "3. Files are written under UPLOAD_DIR and nowhere else."
+  ],
+  "diff": [
+    "diff --git a/app/avatars.py b/app/avatars.py",
+    "new file mode 100644",
+    "index 0000000..1a2b3c4",
+    "--- /dev/null",
+    "+++ b/app/avatars.py",
+    "@@ -0,0 +1,26 @@",
+    "+\"\"\"Avatar upload handling.\"\"\"",
+    "+",
+    "+from __future__ import annotations",
+    "+",
+    "+import os",
+    "+from typing import Any",
+    "+",
+    "+from .auth import require_user",
+    "+from .db import execute",
+    "+",
+    "+UPLOAD_DIR = \"/var/app/uploads\"",
+    "+",
+    "+",
+    "+def upload_avatar(request: dict[str, Any], user_id: int, filename: str, content: bytes) -> dict[str, Any]:",
+    "+    caller = require_user(request)",
+    "+",
+    "+    target = os.path.join(UPLOAD_DIR, filename)",
+    "+    with open(target, \"wb\") as handle:",
+    "+        handle.write(content)",
+    "+",
+    "+    execute(\"UPDATE users SET avatar_path = ? WHERE id = ?\", (target, user_id))",
+    "+    return {",
+    "+        \"status\": 200,",
+    "+        \"body\": {\"id\": user_id, \"avatar\": target, \"uploaded_by\": caller[\"email\"]},",
+    "+    }"
+  ],
+  "expected": [
+    {
+      "file": "app/avatars.py",
+      "line": 17,
+      "category": "security",
+      "tags": ["path traversal", "traversal", "basename", "arbitrary", "escape the upload", "outside", "filename is user"]
+    },
+    {
+      "file": "app/avatars.py",
+      "line": 15,
+      "category": "security",
+      "tags": ["assert owner", "authoris", "authoriz", "own", "any authenticated", "user id is not checked", "another user"]
+    },
+    {
+      "file": "app/avatars.py",
+      "line": 19,
+      "category": "security",
+      "tags": ["size", "2 mb", "unbounded", "content type", "png", "jpeg", "no validation", "disk"]
+    }
+  ]
+}

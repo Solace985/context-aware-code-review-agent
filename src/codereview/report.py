@@ -1,0 +1,255 @@
+"""Rendering a ReviewResult for humans and for machines.
+
+The Markdown report leads with the triage buckets rather than a flat list,
+because the job of the review is to route attention: what blocks the merge,
+what deserves a conversation, and what is a nit. Every finding carries its
+evidence and its rule citation so the developer can check the claim instead of
+taking it on faith.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from .models import Finding, ReviewResult
+from .safety import fence_for
+
+TOOL_NAME = "code-review-agent"
+
+SEVERITY_ICON = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "⚪"}
+
+BUCKET_TITLES = {
+    "action_required": ("Action required", "Address these before merging."),
+    "review_recommended": ("Review recommended", "Worth a look; your call."),
+    "nitpick": ("Nitpicks", "Low priority."),
+}
+
+# GitHub rejects issue comments over 65536 characters.
+MAX_MARKDOWN_CHARS = 60000
+
+
+def _code_block(text: str, lang: str = "") -> str:
+    fence = fence_for(text)
+    return f"{fence}{lang}\n{text}\n{fence}"
+
+
+def _finding_md(index: int, f: Finding) -> str:
+    icon = SEVERITY_ICON.get(f.severity, "⚪")
+    loc = f"`{f.file}:{f.start_line}`" + (f"-{f.end_line}" if f.end_line != f.start_line else "")
+    lines = [
+        f"#### {index}. {icon} {f.title}",
+        "",
+        f"**{f.severity.upper()}** · `{f.category}` · {loc} · confidence {f.confidence:.0%}"
+        f" · found by {', '.join(f.found_by)}",
+        "",
+        f.description,
+    ]
+    if f.evidence:
+        lines += ["", "<details><summary>Evidence</summary>", "", _code_block(f.evidence), "</details>"]
+    if f.suggestion:
+        lines += ["", "**Suggested fix**", "", f.suggestion]
+    if f.rule_ids:
+        lines += ["", "**Rules cited:** " + ", ".join(f"`{r}`" for r in f.rule_ids)]
+    lines.append("")
+    return "\n".join(lines)
+
+
+def to_markdown(result: ReviewResult) -> str:
+    counts = {s: sum(1 for f in result.findings if f.severity == s) for s in SEVERITY_ICON}
+    total = len(result.findings)
+
+    out: list[str] = ["## 🤖 AI code review", ""]
+
+    if not result.diff.files:
+        out.append("_No reviewable changes were found._")
+        return "\n".join(out)
+
+    if total == 0:
+        out.append("**No findings.** The reviewers did not flag anything in this change.")
+    else:
+        summary = " · ".join(
+            f"{SEVERITY_ICON[s]} {counts[s]} {s}" for s in SEVERITY_ICON if counts[s]
+        )
+        out.append(f"**{total} finding{'s' if total != 1 else ''}** — {summary}")
+    out.append("")
+
+    for bucket in ("action_required", "review_recommended", "nitpick"):
+        findings = result.by_triage(bucket)
+        if not findings:
+            continue
+        title, blurb = BUCKET_TITLES[bucket]
+        out.append(f"### {title} ({len(findings)})")
+        out.append(f"_{blurb}_")
+        out.append("")
+        if bucket == "nitpick":
+            out.append("<details><summary>Show nitpicks</summary>")
+            out.append("")
+        for i, f in enumerate(findings, 1):
+            out.append(_finding_md(i, f))
+        if bucket == "nitpick":
+            out.append("</details>")
+            out.append("")
+
+    # Traceability: what the review actually looked at.
+    rc = result.context
+    out.append("<details><summary>Context used</summary>")
+    out.append("")
+    out.append(f"- **Model:** `{result.model}`")
+    out.append("- **Reviewers:** " + ", ".join(f"`{a.name}`" for a in result.agents))
+    out.append(f"- **Changed files:** {len(result.diff.files)}")
+    out.append(
+        f"- **Retrieval:** `{rc.mode}` — {len(rc.chunks)} chunk(s) selected "
+        f"from {rc.indexed_chunks} indexed across {rc.indexed_files} file(s)"
+    )
+    if rc.chunks:
+        out.append("- **Repository context:**")
+        for chunk in rc.chunks:
+            out.append(f"  - `{chunk.path}:{chunk.start_line}-{chunk.end_line}` — {chunk.kind} `{chunk.name}`")
+    if rc.rules:
+        out.append("- **Rules applied:**")
+        for rule in rc.rules:
+            out.append(f"  - `{rule.id}` — {rule.title} (`{rule.path}`)")
+    if rc.task_source:
+        out.append(f"- **Task context:** `{rc.task_source}`")
+    if result.dropped:
+        detail = ", ".join(f"{k.replace('_', ' ')}: {v}" for k, v in sorted(result.dropped.items()))
+        out.append(f"- **Filtered out before you saw this:** {detail}")
+    if result.input_tokens or result.output_tokens:
+        out.append(
+            f"- **Tokens:** {result.input_tokens:,} in / {result.output_tokens:,} out "
+            f"in {result.elapsed_s:.1f}s"
+        )
+    out.append("")
+    out.append("</details>")
+
+    if result.warnings:
+        out.append("")
+        out.append("> [!WARNING]")
+        for warning in result.warnings:
+            out.append(f"> - {warning}")
+
+    out.append("")
+    out.append(
+        f"<sub>Generated by {TOOL_NAME} — an AI first pass. "
+        f"You are still the reviewer of record.</sub>"
+    )
+
+    text = "\n".join(out)
+    if len(text) > MAX_MARKDOWN_CHARS:
+        text = text[:MAX_MARKDOWN_CHARS] + "\n\n_…report truncated. See `review.json` for the full output._"
+    return text
+
+
+def to_json(result: ReviewResult) -> str:
+    return json.dumps(result.to_dict(), indent=2, ensure_ascii=False)
+
+
+_SARIF_LEVEL = {"critical": "error", "high": "error", "medium": "warning", "low": "note"}
+
+
+def to_sarif(result: ReviewResult) -> str:
+    """Minimal SARIF 2.1.0 so GitHub can show findings as inline annotations."""
+    rules: dict[str, dict[str, Any]] = {}
+    results: list[dict[str, Any]] = []
+
+    for f in result.findings:
+        rule_id = f.rule_ids[0] if f.rule_ids else f"codereview/{f.category}"
+        rules.setdefault(
+            rule_id,
+            {
+                "id": rule_id,
+                "name": rule_id.replace("/", "-"),
+                "shortDescription": {"text": f.category.replace("_", " ").title()},
+                "defaultConfiguration": {"level": _SARIF_LEVEL.get(f.severity, "warning")},
+            },
+        )
+        message = f.description
+        if f.suggestion:
+            message += f"\n\nSuggested fix: {f.suggestion}"
+        results.append(
+            {
+                "ruleId": rule_id,
+                "level": _SARIF_LEVEL.get(f.severity, "warning"),
+                "message": {"text": f"{f.title}\n\n{message}"},
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": f.file},
+                            "region": {
+                                "startLine": max(1, f.start_line),
+                                "endLine": max(1, f.end_line),
+                            },
+                        }
+                    }
+                ],
+                "partialFingerprints": {
+                    "codereview/v1": f"{f.file}:{f.category}:{f.title[:60]}",
+                },
+            }
+        )
+
+    return json.dumps(
+        {
+            "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+            "version": "2.1.0",
+            "runs": [
+                {
+                    "tool": {"driver": {"name": TOOL_NAME, "rules": list(rules.values())}},
+                    "results": results,
+                }
+            ],
+        },
+        indent=2,
+    )
+
+
+def to_terminal(result: ReviewResult) -> str:
+    """Compact plain-text summary for local runs."""
+    lines: list[str] = []
+    if not result.diff.files:
+        return "No reviewable changes were found."
+    if not result.findings:
+        lines.append("No findings.")
+    for bucket in ("action_required", "review_recommended", "nitpick"):
+        findings = result.by_triage(bucket)
+        if not findings:
+            continue
+        title, _ = BUCKET_TITLES[bucket]
+        lines.append("")
+        lines.append(f"{title.upper()} ({len(findings)})")
+        lines.append("-" * (len(title) + 8))
+        for f in findings:
+            lines.append(f"  [{f.severity}] {f.file}:{f.start_line}  {f.title}")
+            lines.append(f"      {f.description.splitlines()[0][:160] if f.description else ''}")
+            if f.rule_ids:
+                lines.append(f"      rules: {', '.join(f.rule_ids)}")
+    lines.append("")
+    rc = result.context
+    lines.append(
+        f"context: {rc.mode} ({len(rc.chunks)} chunks of {rc.indexed_chunks}, "
+        f"{len(rc.rules)} rules) | reviewers: {', '.join(a.name for a in result.agents)} | "
+        f"{result.elapsed_s:.1f}s"
+    )
+    if result.dropped:
+        lines.append(
+            "filtered: " + ", ".join(f"{k}={v}" for k, v in sorted(result.dropped.items()))
+        )
+    for warning in result.warnings:
+        lines.append(f"warning: {warning}")
+    return "\n".join(lines)
+
+
+def write_outputs(result: ReviewResult, out_dir: Path, formats: list[str]) -> list[Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    renderers = {"markdown": ("review.md", to_markdown), "json": ("review.json", to_json), "sarif": ("review.sarif", to_sarif)}
+    for fmt in formats:
+        if fmt not in renderers:
+            continue
+        name, render = renderers[fmt]
+        path = out_dir / name
+        path.write_text(render(result), encoding="utf-8")
+        written.append(path)
+    return written

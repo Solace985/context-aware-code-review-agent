@@ -1,0 +1,61 @@
+{
+  "id": "pr-002",
+  "title": "Add user search for the admin console",
+  "task": [
+    "DX-102: Search users by email or display name",
+    "",
+    "## Problem",
+    "Support staff need to find a user without paging through the whole list.",
+    "",
+    "## Acceptance criteria",
+    "1. The endpoint is admin-only, matching the existing list_users handler.",
+    "2. Results are bounded by the shared page-size limit.",
+    "3. The search term is matched case-insensitively against email and",
+    "   display_name."
+  ],
+  "diff": [
+    "diff --git a/app/users.py b/app/users.py",
+    "index 3a1f2b4..7d5e8a1 100644",
+    "--- a/app/users.py",
+    "+++ b/app/users.py",
+    "@@ -30,6 +30,17 @@ def list_users(request: dict[str, Any], page_size: int | None = None) -> dict[st",
+    "     rows = query(\"SELECT id, email, display_name FROM users ORDER BY id LIMIT ?\", (limit,))",
+    "     return {\"status\": 200, \"body\": {\"users\": rows, \"limit\": limit}}",
+    " ",
+    "+",
+    "+def search_users(request: dict[str, Any], term: str) -> dict[str, Any]:",
+    "+    \"\"\"Find users by email or display name.\"\"\"",
+    "+    caller = require_user(request)",
+    "+    sql = (",
+    "+        \"SELECT id, email, display_name, role FROM users \"",
+    "+        f\"WHERE email LIKE '%{term}%' OR display_name LIKE '%{term}%'\"",
+    "+    )",
+    "+    rows = query(sql)",
+    "+    log.info(\"user search by=%s term=%s hits=%s\", caller[\"id\"], term, len(rows))",
+    "+    return {\"status\": 200, \"body\": {\"users\": rows}}",
+    "+",
+    " ",
+    " def update_display_name(request: dict[str, Any], user_id: int, display_name: str) -> dict[str, Any]:",
+    "     caller = require_user(request)"
+  ],
+  "expected": [
+    {
+      "file": "app/users.py",
+      "line": 39,
+      "category": "security",
+      "tags": ["sql", "injection", "interpolat", "f string", "concatenat", "placeholder", "bound parameter"]
+    },
+    {
+      "file": "app/users.py",
+      "line": 35,
+      "category": "security",
+      "tags": ["admin", "role", "authoris", "authoriz", "require role", "any authenticated"]
+    },
+    {
+      "file": "app/users.py",
+      "line": 40,
+      "category": "reliability",
+      "tags": ["limit", "page size", "clamp page size", "unbounded", "pagination", "every row"]
+    }
+  ]
+}

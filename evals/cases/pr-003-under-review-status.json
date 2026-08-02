@@ -1,0 +1,75 @@
+{
+  "id": "pr-003",
+  "title": "Add an UNDER_REVIEW report status",
+  "task": [
+    "DX-103: Hold reports flagged for manual review",
+    "",
+    "## Problem",
+    "Compliance needs to park a submitted report while a human checks it.",
+    "Today the only states are draft, submitted, approved and archived, so a",
+    "flagged report can be approved by anyone before the check happens.",
+    "",
+    "## Acceptance criteria",
+    "1. A new status `under_review` exists between submitted and approved.",
+    "2. approve_report MUST refuse to approve a report whose status is",
+    "   under_review, returning 409 with an explanatory error.",
+    "3. Existing rows must keep working: reports written before this change",
+    "   have no knowledge of the new status and must not break any read path.",
+    "4. The change ships with a migration for existing rows."
+  ],
+  "diff": [
+    "diff --git a/app/models.py b/app/models.py",
+    "index 1b2c3d4..5e6f7a8 100644",
+    "--- a/app/models.py",
+    "+++ b/app/models.py",
+    "@@ -14,6 +14,7 @@ class ReportStatus(str, Enum):",
+    "     DRAFT = \"draft\"",
+    "     SUBMITTED = \"submitted\"",
+    "     APPROVED = \"approved\"",
+    "+    UNDER_REVIEW = \"under_review\"",
+    "     ARCHIVED = \"archived\"",
+    " ",
+    " ",
+    "diff --git a/app/reports.py b/app/reports.py",
+    "index 8a9b0c1..2d3e4f5 100644",
+    "--- a/app/reports.py",
+    "+++ b/app/reports.py",
+    "@@ -60,6 +60,17 @@ def submit_report(request: dict[str, Any], report_id: int) -> dict[str, Any]:",
+    "     log.info(\"report submitted report_id=%s\", report_id)",
+    "     return {\"status\": 200, \"body\": {\"id\": report_id, \"status\": ReportStatus.SUBMITTED.value}}",
+    " ",
+    "+",
+    "+def flag_for_review(request: dict[str, Any], report_id: int) -> dict[str, Any]:",
+    "+    caller = require_user(request)",
+    "+    row = query_one(\"SELECT * FROM reports WHERE id = ?\", (report_id,))",
+    "+    if row is None:",
+    "+        return {\"status\": 404, \"body\": {\"error\": \"not found\"}}",
+    "+    assert_owner(caller, row)",
+    "+    execute(\"UPDATE reports SET status = ? WHERE id = ?\", (ReportStatus.UNDER_REVIEW.value, report_id))",
+    "+    return {\"status\": 200, \"body\": {\"id\": report_id, \"status\": ReportStatus.UNDER_REVIEW.value}}",
+    "+",
+    " ",
+    " def approve_report(request: dict[str, Any], report_id: int) -> dict[str, Any]:",
+    "     caller = require_user(request)"
+  ],
+  "expected": [
+    {
+      "file": "app/reports.py",
+      "line": 68,
+      "category": "requirements_gap",
+      "tags": ["approve report", "409", "under review", "still be approved", "does not block", "refuse", "criterion", "acceptance"]
+    },
+    {
+      "file": "app/models.py",
+      "line": 17,
+      "category": "correctness",
+      "tags": ["migration", "backfill", "existing row", "default", "schema change", "null safe"]
+    },
+    {
+      "file": "app/models.py",
+      "line": 17,
+      "category": "correctness",
+      "tags": ["terminal statuses", "enum", "branch", "incomplete", "exhaust", "membership"]
+    }
+  ]
+}

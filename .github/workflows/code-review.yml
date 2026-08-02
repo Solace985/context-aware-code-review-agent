@@ -1,0 +1,64 @@
+# This repository reviewing itself. Copy this file into your own project
+# (or run `codereview init`, which writes it for you).
+name: AI code review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Least privilege: read the code, write one comment. Nothing else.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    # `pull_request` (not `pull_request_target`) means a fork PR runs without
+    # access to secrets, which is what we want: untrusted code must never run
+    # in a job that holds the API key. Skip forks explicitly so the run is a
+    # clean no-op rather than a confusing auth failure.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # needed to compute the merge base
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the reviewer
+        run: pip install --quiet -e .
+
+      - name: Extract the PR description as task context
+        # Read the body out of the event payload with jq. Interpolating the
+        # PR body into a run block instead would let its text execute as shell
+        # commands on this runner.
+        run: jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH" > pr-body.md
+
+      - name: Review
+        id: review
+        continue-on-error: true      # still post the comment when the gate trips
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          codereview review \
+            --base "origin/$BASE_REF" \
+            --task pr-body.md \
+            --format markdown --format json \
+            --out .review-out
+
+      - name: Post the review as a PR comment
+        if: always() && hashFiles('.review-out/review.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr comment "$PR_NUMBER" --body-file .review-out/review.md
+
+      - name: Fail the check when the severity gate trips
+        if: steps.review.outcome == 'failure'
+        run: |
+          echo "::error::Code review found issues at or above the configured fail_on severity."
+          exit 1
