@@ -19,7 +19,7 @@ triaged review back to the pull request.
 | **Severity triage** | Splits findings into *Action required* / *Review recommended* / *Nitpicks*, with a CI gate | The job of a review is to route attention, not to make every comment feel equally urgent. |
 | **Evaluation** | `codereview eval` scores precision / recall / F1 against labelled sample PRs | The design claims above are checkable, not asserted. |
 
-<img width="519" height="532" alt="image" src="https://github.com/user-attachments/assets/80d4c56a-54ec-4518-a1af-77ef1274ef17" />
+<img width="519" height="532" alt="image" src="https://github.com/user-attachments/assets/80d4c56a-54ec-4518-a1af-77ef1274ef17" align="center"/>
 
 
 ---
