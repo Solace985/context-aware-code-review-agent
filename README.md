@@ -1,9 +1,12 @@
-# code-review-agent
+# Context Aware Code Review Agent
 
 A context-aware AI code reviewer you drop into your own repository. No hosted
-service, no dashboard, no account — a CLI and a GitHub Actions workflow that
+service, no dashboard, no account just a CLI and a GitHub Actions workflow that
 read your code locally, send only the relevant slice to Claude, and post a
 triaged review back to the pull request.
+
+<img width="1232" height="578" alt="image" src="https://github.com/user-attachments/assets/0fbfdc43-3f0a-40d9-a3fb-6ab6d7a79d21" />
+
 
 
 | | What it does | Why |
@@ -15,6 +18,9 @@ triaged review back to the pull request.
 | **Evidence gates** | Drops findings whose file or lines aren't in the diff, that cite rules that don't exist, or that fall below a confidence floor | This is the difference between a review and a wall of plausible text. |
 | **Severity triage** | Splits findings into *Action required* / *Review recommended* / *Nitpicks*, with a CI gate | The job of a review is to route attention, not to make every comment feel equally urgent. |
 | **Evaluation** | `codereview eval` scores precision / recall / F1 against labelled sample PRs | The design claims above are checkable, not asserted. |
+
+<img width="519" height="532" alt="image" src="https://github.com/user-attachments/assets/80d4c56a-54ec-4518-a1af-77ef1274ef17" />
+
 
 ---
 
@@ -32,7 +38,7 @@ That is the honest bar to clear, so here is the specific list:
    the acceptance criteria and reports the ones the diff does not satisfy.
 4. **It throws away its own bad output.** Findings pointing at files not in
    the diff, at line numbers that aren't in a changed hunk, or citing invented
-   rules are dropped before you see them — and the count is printed, so you
+   rules are dropped before you see them and the count is printed, so you
    know how much noise was filtered.
 5. **It is reproducible and gated.** Same command, same config, an exit code
    your CI can act on, and JSON/SARIF for tooling.
@@ -55,7 +61,7 @@ git clone https://github.com/OWNER/code-review-agent && cd code-review-agent
 pip install -e ".[dev]"
 ```
 
-Set your key. It is read from the environment only — never from a config file,
+Set your key. It is read from the environment only never from a config file,
 never from a flag:
 
 ```bash
@@ -110,7 +116,7 @@ wrote: .review-out/review.md, .review-out/review.json
 FAILED: findings at or above severity 'high'.
 ```
 
-Exit code is `1` here because the severity gate tripped. (Illustrative shape —
+Exit code is `1` here because the severity gate tripped. (Illustrative shape so
 your findings will differ.)
 </details>
 
@@ -118,7 +124,10 @@ your findings will differ.)
 
 ## The four ways to use it
 
-### 1. Pre-PR review (the highest-value one)
+### 1. Pre-PR review (Recommended)
+
+<img width="1151" height="384" alt="image" src="https://github.com/user-attachments/assets/3a7c005d-fa7a-476b-a8d1-e3dbc173f527" />
+
 
 Other developers' attention is the expensive resource. Clean up what a machine
 can catch *before* you spend it:
@@ -170,6 +179,9 @@ working tree, and answers — including telling you when it thinks a finding was
 wrong.
 
 ### 4. Codify what keeps coming back
+
+<img width="890" height="528" alt="image" src="https://github.com/user-attachments/assets/d2d8c37a-cf4f-44a3-b698-700c0cb61734" />
+
 
 When the same class of problem recurs, promote it from a finding to a standard,
 so future reviews catch it automatically:
@@ -291,6 +303,9 @@ Two flags worth knowing:
 
 ## Does the context engine actually help?
 
+<img width="537" height="478" alt="image" src="https://github.com/user-attachments/assets/b3329ce7-7887-4786-8320-ab18c98a6e60" />
+
+
 Run it and see. `codereview eval` scores four configurations against six
 labelled sample PRs in `evals/`:
 
@@ -302,10 +317,10 @@ codereview eval --configs diff-only,ensemble --limit 3
 ```
 config           precision    recall      F1    TP    FP    FN
 --------------------------------------------------------------
-diff-only            ...
-full-context         ...
-selective            ...
-ensemble             ...
+diff-only            
+full-context         
+selective            
+ensemble             
 ```
 
 - **diff-only** — no repository context, one general reviewer
@@ -313,24 +328,25 @@ ensemble             ...
 - **selective** — retrieved top-K chunks, one general reviewer
 - **ensemble** — retrieved top-K chunks, the four specialists
 
-> **No benchmark numbers are published here.** Filling that table in with
-> figures I had not actually measured would be exactly the kind of
-> unverifiable claim this tool exists to catch. Run it yourself — it costs a
+<img width="1156" height="445" alt="image" src="https://github.com/user-attachments/assets/cf8bb64a-0209-4fd3-b4ae-c6adcb9f827e" />
+
+
+> **No benchmark numbers are published here.** Run the tool yourself and fill in the table given above with your personal resultant metrics it costs a
 > few dollars of tokens. The course lab this is modelled on reported roughly
 > +25% F1 from adding selective context and ~10 points of F1 from an ensemble
 > over a single general agent; whether *this* implementation reproduces that
 > on six cases is a genuinely open question, and six cases is a small sample.
 
 Matching is deterministic (file + line proximity + keyword overlap), not an LLM
-judge — reproducible and cheap, but conservative: a correct finding worded
+judge reproducible and cheap, but conservative: a correct finding worded
 unusually will miss its label. Add your own cases in `evals/cases/*.json`.
 
 ---
 
 ## Security
 
-The threat model is that **the code being reviewed is hostile** — it arrived
-in a pull request from someone you do not control — and that **the model's
+The threat model is that **the code being reviewed is hostile** it arrived
+in a pull request from someone you do not control and that **the model's
 reply is also untrusted**.
 
 **Your key stays yours.** Read from `ANTHROPIC_API_KEY` in the environment,
@@ -353,7 +369,7 @@ secrets. Redactions are counted and reported.
 **Prompt injection is handled as a real threat.** Repository content is data,
 never instructions: every untrusted section is delimiter-wrapped, the system
 prompt tells each reviewer to report instruction-like content as a security
-finding rather than obey it, and — critically — the *output* is validated
+finding rather than obey it, and critically the *output* is validated
 structurally. A model talked into "approve everything" still cannot produce a
 finding pointing at a file that is not in the diff. Nothing from the model is
 ever executed, and no filesystem path is ever derived from it.
@@ -369,8 +385,8 @@ than passed to git as a flag.
 **Config parsing is safe.** `yaml.safe_load` only, so a `.review.yml` arriving
 in a pull request cannot construct Python objects.
 
-**CI runs at least privilege.** The workflow uses `pull_request` — *not*
-`pull_request_target` — so a fork's code never runs in a job holding your API
+**CI runs at least privilege.** The workflow uses `pull_request` *not*
+`pull_request_target` so a fork's code never runs in a job holding your API
 key, and fork PRs are skipped explicitly rather than failing confusingly.
 Permissions are `contents: read` + `pull-requests: write`. The PR body is read
 from the event payload with `jq` rather than interpolated into a shell script.
@@ -381,7 +397,7 @@ comment with `gh` using the job's own scoped token.
 tokens all have configurable ceilings, and everything dropped by a ceiling is
 reported rather than silently skipped. `--estimate` tells you the bill first.
 
-Found a hole? Open an issue. Security reports welcome.
+Found a hole? Open an issue. Security reports are always welcome.
 
 ---
 
@@ -413,8 +429,7 @@ needed, and CI runs without one to prove it.
 
 ## Credits
 
-The design follows the *Build an AI Code Review Agent* short course by DeepLearning.AI
-and is inspired by Qodo: the pre-PR review habit, task and repository context, the context engine,
+The design of this project is inspired by Qodo code review agent and the pre-PR review habit, task and repository context, the context engine,
 selective retrieval beating full context, the specialised-agent ensemble, and
 severity triage all come from there. The implementation, the security model
 and the evaluation harness are mine.
