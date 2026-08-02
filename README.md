@@ -5,9 +5,6 @@ service, no dashboard, no account — a CLI and a GitHub Actions workflow that
 read your code locally, send only the relevant slice to Claude, and post a
 triaged review back to the pull request.
 
-It is deliberately small (~3k lines of Python across 11 flat modules, two
-dependencies) and deliberately opinionated about the parts that make an AI
-review useful rather than noisy:
 
 | | What it does | Why |
 |---|---|---|
@@ -43,13 +40,10 @@ That is the honest bar to clear, so here is the specific list:
    credential files are never opened, so a stray `.env` in your tree does not
    end up in a prompt.
 
-What it is *not*: a replacement for you. It is a first pass that routes your
-attention. Read the [Honest limitations](#honest-limitations) section before
-you trust it with anything.
-
+# This agent is not meant to be a replacement but an addition along with a human in the loop that verifies the changes or issues proposed by the agent and takes necessary actions accordingly.
 ---
 
-## Install
+## How to Install
 
 Requires Python 3.10+ and git.
 
@@ -391,53 +385,6 @@ Found a hole? Open an issue. Security reports welcome.
 
 ---
 
-## Honest limitations
-
-Read this before you rely on it.
-
-- **It is a POC.** ~3k lines written over a weekend, with 1.4k lines of tests
-  (171 of them) and no production mileage — and, see below, the model path has
-  never been run against the live API.
-- **Retrieval is lexical, not semantic.** BM25 over identifier tokens plus
-  structural boosts, deliberately: no second vendor, no second API key, no
-  extra bytes of source leaving your machine, deterministic and testable. The
-  real cost is that it matches *names*. If your diff touches `login` and the
-  relevant code says `authenticate`, retrieval will probably miss it. Adding
-  embeddings would fix that and is the first upgrade I would make.
-- **The eval set is six PRs, all Python, all written by me.** Numbers from it
-  indicate direction, not accuracy. The labels were written knowing what the
-  planted bugs were, which is a real bias.
-- **Chunking is good for Python, rough elsewhere.** Python uses the `ast`
-  module. JS/TS/Go/Java/Rust/C# use a regex declaration splitter that will
-  mis-slice unusual formatting. Everything else falls back to 50-line windows.
-- **Findings are model output.** The validators drop findings that are
-  *structurally* wrong — wrong file, wrong lines, invented rule. They cannot
-  tell you a well-anchored, confidently-worded finding is simply incorrect.
-  False positives happen. Use `codereview ask` and disagree.
-- **The precision gate costs recall, by design.** `require_changed_lines`
-  drops any finding not anchored to a changed hunk — which also drops the
-  genuinely useful "this change breaks a caller in a file you didn't touch".
-  That is the single biggest known trade-off in the tool. If you care more
-  about catching those than about noise, set `require_changed_lines: false`
-  and expect more false positives.
-- **Recall is unmeasured on real code.** It will miss things. It has no idea
-  what your product does, and it cannot run your tests.
-- **Cross-repository impact is out of scope.** Commercial tools check whether
-  your change breaks a *different* service. This only sees one repository.
-- **Cost is real.** Four agents means four calls per review, each carrying the
-  diff plus context. Expect single-digit dollars per large PR on Opus. Use
-  `--agents security,correctness`, a smaller model, or `--estimate` first.
-- **No incremental review.** Every push re-reviews the whole branch diff.
-- **The live API path is untested against the real service.** Everything up to
-  and including request construction, response parsing, refusals, truncation
-  and error handling is covered by tests against a faked SDK client, and the
-  full pipeline runs end to end offline — but no real `messages.create` call
-  has been made. The first real run may surface something the fake did not.
-  Run `codereview review --estimate` and then a small review before pointing
-  it at anything important.
-
----
-
 ## How it works
 
 ```
@@ -459,22 +406,6 @@ repo files ──▶ chunk ──▶ BM25 index ──▶ retrieve top-K ──�
               triage ──▶ markdown / json / sarif ──▶ exit code
 ```
 
-Eleven modules under `src/codereview/`:
-
-| Module | Job |
-|---|---|
-| `cli.py` | Argument parsing and the five commands |
-| `config.py` | `.review.yml` loading, validation, credential rejection |
-| `models.py` | Shared dataclasses |
-| `diff.py` | Running git, parsing unified diffs, changed-line tracking |
-| `context.py` | Chunking, BM25 index, retrieval, rules, task loading |
-| `safety.py` | Redaction, sensitive paths, path containment, output sanitising |
-| `agents.py` | The four reviewer prompts and the output schema |
-| `llm.py` | The only module that talks to the API; the offline stub |
-| `pipeline.py` | Orchestration, validation, dedupe, triage, gating |
-| `report.py` | Markdown / JSON / SARIF / terminal rendering |
-| `evaluate.py` | The precision / recall / F1 harness |
-
 Run the tests with `pytest -q`. They never touch the network — no API key is
 needed, and CI runs without one to prove it.
 
@@ -482,10 +413,9 @@ needed, and CI runs without one to prove it.
 
 ## Credits
 
-The design follows the *AI Code Review* short course by DeepLearning.AI and
-Qodo: the pre-PR review habit, task and repository context, the context engine,
+The design follows the *Build an AI Code Review Agent* short course by DeepLearning.AI
+and is inspired by Qodo: the pre-PR review habit, task and repository context, the context engine,
 selective retrieval beating full context, the specialised-agent ensemble, and
 severity triage all come from there. The implementation, the security model
 and the evaluation harness are mine.
 
-MIT licensed.
